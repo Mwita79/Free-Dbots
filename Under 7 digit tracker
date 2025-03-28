@@ -1,0 +1,92 @@
+import json
+import websocket
+import time
+
+# 🔑 Insert your Deriv API Key here
+DERIV_API_KEY = "poWETWM1UwQ50Ui"
+
+# 📌 Select the market (e.g., Volatility 100 Index)
+MARKET_SYMBOL = "R_100"
+
+# 🛠 Configurable parameters
+HISTORY_LENGTH = 10  # Number of recent digits to analyze
+TRADE_AMOUNT = 1      # Amount per trade
+STOP_LOSS = 3         # Max consecutive losses before stopping
+
+# 🔗 WebSocket URL for Deriv API
+DERIV_WEBSOCKET_URL = "wss://ws.deriv.com/websockets/v3"
+
+# 📊 Store recent digits and track wins/losses
+digit_history = []
+consecutive_losses = 0
+
+def on_message(ws, message):
+    global digit_history, consecutive_losses
+
+    data = json.loads(message)
+    
+    if "msg_type" in data and data["msg_type"] == "tick":
+        last_digit = int(str(data["tick"]["quote"])[-1])  # Extract last digit
+        
+        # Update history
+        digit_history.append(last_digit)
+        if len(digit_history) > HISTORY_LENGTH:
+            digit_history.pop(0)
+
+        print(f"Latest Digit: {last_digit}, History: {digit_history}")
+
+        # Check probability
+        if digit_history.count(7) + digit_history.count(8) + digit_history.count(9) < (HISTORY_LENGTH * 0.3):
+            print("✅ Favorable condition detected! Placing 'Under 7' trade.")
+            place_trade(ws)
+        else:
+            print("⚠ Not a good time to trade.")
+
+def place_trade(ws):
+    global consecutive_losses
+    
+    trade_request = {
+        "authorize": DERIV_API_KEY
+    }
+    ws.send(json.dumps(trade_request))
+    
+    trade_contract = {
+        "buy": 1,
+        "price": TRADE_AMOUNT,
+        "parameters": {
+            "amount": TRADE_AMOUNT,
+            "basis": "stake",
+            "contract_type": "DIGITUNDER",
+            "currency": "USD",
+            "duration": 1,
+            "duration_unit": "t",
+            "symbol": MARKET_SYMBOL,
+            "barrier": 7
+        }
+    }
+    
+    ws.send(json.dumps(trade_contract))
+    print("📊 Trade placed for 'Under 7'!")
+
+def on_open(ws):
+    print("✅ Connected to Deriv API. Fetching data...")
+    tick_request = {
+        "ticks": MARKET_SYMBOL,
+        "subscribe": 1
+    }
+    ws.send(json.dumps(tick_request))
+
+def on_error(ws, error):
+    print(f"❌ Error: {error}")
+
+def on_close(ws, close_status_code, close_msg):
+    print("🔴 Disconnected from Deriv API.")
+
+# Connect WebSocket
+ws = websocket.WebSocketApp(DERIV_WEBSOCKET_URL,
+                            on_open=on_open,
+                            on_message=on_message,
+                            on_error=on_error,
+                            on_close=on_close)
+
+ws.run_forever()
